@@ -3,15 +3,22 @@
 # Autor rozwiązania: Mateusz Roman
 
 import heapq
+from collections import deque
 
 class Drug:
     def __init__(self, drug_id, name, insert_order, indications=None, substitutes=None, side_effects=None):
-        self.id = drug_id                 # np. "D0001"
-        self.name = name                  # np. "Apap"
-        self.indications = {}             # choroba -> skuteczność
+        self.id = drug_id
+        self.name = name
+        self.indications = {}                   # wskazania w leczeniu (choroba, skuteczność)
+        self.efficacy_histogram = [0]*11        # indeksy 1-10
+
         if indications:
             for disease, efficacy in indications:
                 self.indications[disease] = efficacy
+
+                # Aktualizuj histogram wskazań: liczba wskazań z efektywnością
+                for level in range(1, efficacy+1):
+                        self.efficacy_histogram[level] += 1      
 
         if substitutes:
             self.substitutes = set(substitutes) # leki, które ten lek może zastąpić
@@ -19,12 +26,12 @@ class Drug:
             self.substitutes = set()
         self.replaced_by = set()                # leki, które mogą zastąpić ten lek (odwrotna relacja)
 
-        if side_effects:
+        if side_effects:                        # efekty działań nieporządanych (poziom dolegliwości, częstotliwość)
             self.side_effects = side_effects
         else:
             self.side_effects = []
 
-        # Obliczanie raz przy dodawaniu wartości:
+        # Oblicz raz przy dodawaniu wartości (aby potem drugi raz tego nie liczyć)
         self.risk_score = self._compute_risk_score()
         self.worst_effect_name = self._compute_worst_effect_name()
 
@@ -40,13 +47,13 @@ class Drug:
     def _compute_worst_effect_name(self):
         if not self.side_effects:
             return None
-        # Szukamy najpierw najwyższego poziomu dolegliwości
+        # Szukaj najpierw najwyższego poziomu dolegliwości
         max_level = 0
         for effect in self.side_effects:
             if effect[1] > max_level:
                 max_level = effect[1]
 
-        # Filtrujemy efekty o tym poziomie, szukamy tego o największej częstości
+        # Przeszukuj efekty o tym poziomie, szukam tego o największej częstości
         worst_effect = None
         worst_frequency = 0
         for effect in self.side_effects:
@@ -75,14 +82,10 @@ class PharmDB:
     '''
 
     def __init__(self):
-        # Lek po identyfikatorze
+        # Słownik leków po identyfikatorze
         self.drugs_by_id = {}
 
-        # Nazwa → ID
-        self.drug_ids_by_name = {}
-
-        # Relacje zamienników jako graf (kierunek: A → B znaczy A może zastąpić B)
-        self.substitute_graph = {}         # A → zbiór B
+        # Relacje odwrotna zamienników jako graf
         self.reverse_substitutes = {}      # B → zbiór A
 
         # Choroba → (efektywność, ID najnowszego leku)
@@ -91,8 +94,8 @@ class PharmDB:
         # Choroba → kopiec leków (efektywność, -kolejność, ID), do szybkiej aktualizacji najlepszego
         self.indication_heap = {}
 
-        # Numer Generatora ID (numerowany jako D0001, D0002, ...)
-        # Potrzebny również do rozstrzygania remisów (im większy, tym lek później dodany)
+        # Numer Generatora ID (numerowany jako D0001, D0002, itd.)
+        # Potrzebny jest do rozstrzygania remisów (im większy, tym lek później dodany)
         self.next_id_number = 1
 
 
@@ -117,10 +120,10 @@ class PharmDB:
                - e to liczba działań niepożądanych
         '''
 
-        # Generowanie ID, np. "D0001"
+        # Generowanie ID
         drug_id = f"D{self.next_id_number:04d}"
 
-        # Stworzenie obiektu Drug
+        # Stwórz obiekt Drug
         drug = Drug(
             drug_id=drug_id,
             name=drug_name,
@@ -130,19 +133,15 @@ class PharmDB:
             side_effects=side_effects
         )
 
-        # Zwiększenie licznika dodanych leków
+        # Zwiększ licznik dodanych leków
         self.next_id_number += 1
 
-        # Rejestracja leku
+        # Dodaj lek do słownika leków
         self.drugs_by_id[drug_id] = drug
-        self.drug_ids_by_name[drug_name] = drug_id
 
-        # Aktualizacja grafu zamienników
-        self.substitute_graph[drug_id] = set()
         for sub_id in drug.substitutes:
             # Z warunków zadania musi być id już w bazie, ale wypada dodać sprawdzenie
             if sub_id in self.drugs_by_id:
-                self.substitute_graph[drug_id].add(sub_id)
                 # Zaktualizuj odwrotną relację
                 if sub_id not in self.reverse_substitutes:
                     self.reverse_substitutes[sub_id] = set()
@@ -152,16 +151,16 @@ class PharmDB:
             else:
                 raise Exception("Dodany lek może być zamiennikiem tylko dla leków wcześniej dodanych do bazy danych!")
 
-        # Aktualizacja struktur dotyczących wskazań
+        # Aktualizuj struktury dotyczące wskazań
         if indications:
             for disease, efficacy in indications:
                 # Kopiec dla choroby
                 if disease not in self.indication_heap:
                     self.indication_heap[disease] = []
-                # Dodajemy z minusami, bo heapq to kopiec minimalny — symulujemy działanie kopca maksymalnego
+                # Dodaj z minusami, bo heapq to kopiec minimalny — symuluj działanie kopca maksymalnego
                 heapq.heappush(self.indication_heap[disease], (-efficacy, -drug.insert_order, drug_id))
 
-                # Aktualizacja najlepszego leku
+                # Aktualizuj najlepszy lek
                 if disease not in self.best_drug_for_disease:
                     self.best_drug_for_disease[disease] = (efficacy, drug_id)
                 else:
@@ -185,15 +184,12 @@ class PharmDB:
         
             Wymagana złożoność czasowa: O(1)
         '''
+        
         drug = self.drugs_by_id.get(drug_id)
         if not drug:
             return 0
-        
-        sum = 0
-        for efficacy in drug.indications.values():
-            if efficacy >= min_efficacy:
-                sum += 1
-        return sum
+        return drug.efficacy_histogram[min_efficacy]
+
 
 
     def number_of_alternative_drugs(self, drug_id):
@@ -229,7 +225,6 @@ class PharmDB:
         '''
        
         drug = self.drugs_by_id.get(drug_id)
-
         if not drug:
             return None
         return drug.worst_effect_name
@@ -249,7 +244,6 @@ class PharmDB:
             Wymagana złożoność czasowa: O(1)
         '''
         drug = self.drugs_by_id.get(drug_id)
-        
         if not drug:
             return 0.0
         return drug.risk_score
@@ -273,26 +267,26 @@ class PharmDB:
         if drug_id not in self.drugs_by_id:
             return None
 
+        # BFS (lek_id, liczba wykonanych kroków)
         visited = set()
-        queue = [(drug_id, 0)]  # (current_id, steps)
+        queue = deque([(drug_id, 0)])
         visited.add(drug_id)
 
         best_id = drug_id
         best_score = self.drugs_by_id[drug_id].risk_score
 
         while queue:
-            current_id, steps = queue.pop(0)
+            current_id, steps = queue.popleft()
             current_score = self.drugs_by_id[current_id].risk_score
 
-            # Aktualizacja najlepszego
-            if (current_score < best_score) or \
-            (current_score == best_score and current_id < best_id):
+            # Aktualizuj najlepszy lek
+            if (current_score < best_score) or (current_score == best_score and current_id < best_id):
                 best_score = current_score
                 best_id = current_id
 
-            # Jeśli nie osiągnięto max_steps – przejdź do zamienników
+            # Przejdź do sąsiadów, jeśli nie przekroczono max_steps
             if steps < max_steps:
-                for neighbor in self.substitute_graph.get(current_id, []):
+                for neighbor in self.reverse_substitutes.get(current_id, []):
                     if neighbor not in visited:
                         visited.add(neighbor)
                         queue.append((neighbor, steps + 1))
@@ -313,34 +307,48 @@ class PharmDB:
 
             Wymagana złożoność czasowa: O(d), gdzie d to długość zwracanej listy
         '''
-        memo = {}
+        memo = {}  # drug_id: (length, next_drug_id or None)
 
         def dfs(drug_id):
             if drug_id in memo:
                 return memo[drug_id]
 
-            max_path = [drug_id]
-            for neighbor in self.substitute_graph.get(drug_id, []):
-                path = dfs(neighbor)
-                if len(path) + 1 > len(max_path):
-                    max_path = [drug_id] + path
-                elif len(path) + 1 == len(max_path):
-                    candidate = [drug_id] + path
-                    if candidate < max_path:  # leksykograficzne porównanie
-                        max_path = candidate
+            max_length = 1
+            next_drug = None
+            # Przejdź po liście sąsiadów, jeżeli nie ma to zwróć pustą listę
+            for neighbor in self.reverse_substitutes.get(drug_id, []):
+                length, _ = dfs(neighbor)
+                if length + 1 > max_length:
+                    max_length = length + 1
+                    next_drug = neighbor
+                # Porównaj lek po id w przypadku remisu długości
+                elif length + 1 == max_length and neighbor < next_drug:
+                    next_drug = neighbor
 
-            memo[drug_id] = max_path
-            return max_path
+            memo[drug_id] = (max_length, next_drug)
+            return memo[drug_id]
 
-        best_path = []
+        # Znajdź najlepszy start
+        best_start = None
+        best_length = 0
+
         for drug_id in self.drugs_by_id:
-            path = dfs(drug_id)
-            if len(path) > len(best_path):
-                best_path = path
-            elif len(path) == len(best_path) and path < best_path:
-                best_path = path
+            length, _ = dfs(drug_id)
+            if length > best_length:
+                best_length = length
+                best_start = drug_id
+            elif length == best_length and drug_id < best_start:
+                best_start = drug_id
 
-        return best_path
+        # Odtwórz ścieżkę z memo
+        path = []
+        current = best_start
+        while current:
+            path.append(current)
+            _, nxt = memo[current]
+            current = nxt
+
+        return path
 
 
     def find_best_drug_for_indication(self, disease_name):
@@ -378,13 +386,13 @@ class PharmDB:
         _, drug_id = self.best_drug_for_disease[disease_name]
         drug = self.drugs_by_id[drug_id]
 
-        # Aktualizujemy dane w obiekcie
+        # Aktualizuj dane w obiekcie
         drug.indications[disease_name] = new_efficacy
 
-        # Wrzucamy nowy wpis do kopca
+        # Wrzuć nowy wpis do kopca
         heapq.heappush(self.indication_heap[disease_name], (-new_efficacy, -drug.insert_order, drug_id))
 
-        # Oczyszczamy kopiec z przeterminowanych wpisów
+        # Oczyść kopiec z przeterminowanych wpisów
         while self.indication_heap[disease_name]:
             eff, neg_order, top_id = self.indication_heap[disease_name][0]
             top_drug = self.drugs_by_id[top_id]
