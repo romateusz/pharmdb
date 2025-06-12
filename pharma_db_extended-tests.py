@@ -1,4 +1,4 @@
-from pharmdb_extended import PharmaDB
+from pharma_db_extended import PharmaDB
 
 db = PharmaDB()
 
