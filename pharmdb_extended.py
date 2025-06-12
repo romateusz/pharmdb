@@ -5,8 +5,9 @@
 
 import heapq
 from collections import deque
-# Użycie drzew czerwono-czarnych https://www.geeksforgeeks.org/introduction-to-red-black-tree/
-from sortedcontainers import SortedDict         # Używam SortedDict do efektywnego wyszukiwania po zakresie częstotliwości (O(log F))
+# Dodaję SortedDict, w celu użycia drzew czerwono-czarnych do efektywnego
+# wyszukiwania po zakresie częstotliwości (O(log F)) https://www.geeksforgeeks.org/introduction-to-red-black-tree/
+from sortedcontainers import SortedDict
 
 
 class Drug:
@@ -102,8 +103,10 @@ class PharmaDB:
         # Potrzebny jest do rozstrzygania remisów (im większy, tym lek później dodany)
         self.next_id_number = 1
 
-        # Nowa struktura danych 
-        self.side_effect_freq_map = SortedDict()
+        # DODANA STRUKTURA DANYCH W KLASIE
+        self.side_effect_freq_map = SortedDict()  
+        # Jest to posortowany słownik, który będzie przechowywał efekty uboczne pogrupowane według częstotliwości występowania
+        # SortedDict zapewnia, że klucze (częstotliwości) są zawsze uporządkowane rosnąco.
 
 
     def add_drug(self, drug_name, indications=None, substitutes=None, side_effects=None):
@@ -175,14 +178,16 @@ class PharmaDB:
                     if (efficacy > best_efficacy) or (efficacy == best_efficacy and drug.insert_order > self.drugs_by_id[best_id].insert_order):
                         self.best_drug_for_disease[disease] = (efficacy, drug_id)
 
-        # Dodaj efekty uboczne do indeksu częstotliwości
+        # Dodaj do słownika efektów ubocznych po indeksie częstotliwości
         if side_effects:
-            for effect_name, level, freq in side_effects:
-                if freq not in self.side_effect_freq_map:
-                    self.side_effect_freq_map[freq] = []
+            for effect_name, level, freq in side_effects:  # Iteruj po każdej krotce (nazwa efektu, poziom, częstotliwość)
+                if freq not in self.side_effect_freq_map:  # Jeśli dla danej częstotliwości nie ma jeszcze listy efektów
+                    self.side_effect_freq_map[freq] = []  # Utwórz pustą listę, aby przechowywać efekty o tej częstotliwości
+                # Dodaj parę (nazwa leku, nazwa efektu) do listy efektów dla tej częstotliwości
                 self.side_effect_freq_map[freq].append((drug.name, effect_name))
 
-        return drug_id
+        return drug_id  # Zwróć identyfikator leku po dodaniu efektów ubocznych
+
 
 
     def number_of_indications(self, drug_id, min_efficacy):
