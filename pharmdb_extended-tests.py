@@ -63,7 +63,6 @@ assert db.count_drugs_with_side_effect_frequency(
 
 assert db.count_drugs_with_side_effect_frequency(35, 40) == 0
 
-print("Zwrócono:", sorted(db.list_drugs_with_side_effect_frequency(0, 100)))
 assert sorted(db.list_drugs_with_side_effect_frequency(0, 100)) == [
     ("Drug_A", "effect_A"),
     ("Drug_A", "effect_B"),
