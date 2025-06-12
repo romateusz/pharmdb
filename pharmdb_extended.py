@@ -2,14 +2,12 @@
 # PharmDB – system zarządzania i analizy leków
 # Autor rozwiązania: Mateusz Roman
 
-'''
-Zmiany wprowadziłem zgodnie z Pana komentarzem podanym w terminie 0, czyli w funkcjach:
-    - longest_alternative_list()
-    - update_best_indication()
-'''
 
 import heapq
 from collections import deque
+# Użycie drzew czerwono-czarnych https://www.geeksforgeeks.org/introduction-to-red-black-tree/
+from sortedcontainers import SortedDict         # Używam SortedDict do efektywnego wyszukiwania po zakresie częstotliwości (O(log F))
+
 
 class Drug:
     def __init__(self, drug_id, name, insert_order, indications=None, substitutes=None, side_effects=None):
@@ -72,7 +70,7 @@ class Drug:
 
 
 
-class PharmDB:
+class PharmaDB:
     '''
         Klasa przechowująca kompleksową bazę danych leków oraz umożliwiająca analizę ich wzajemnych zależności.
         System zapewnia efektywne odpowiedzi na zapytania dotyczące bezpieczeństwa przyjmowanych leków 
@@ -92,7 +90,7 @@ class PharmDB:
         self.drugs_by_id = {}
 
         # Relacje odwrotna zamienników jako graf
-        self.reverse_substitutes = {}      # B → zbiór A
+        self.reverse_substitutes = {}      # B -> zbiór A
 
         # Choroba → (efektywność, ID najnowszego leku)
         self.best_drug_for_disease = {}
@@ -103,6 +101,9 @@ class PharmDB:
         # Numer Generatora ID (numerowany jako D0001, D0002, itd.)
         # Potrzebny jest do rozstrzygania remisów (im większy, tym lek później dodany)
         self.next_id_number = 1
+
+        # Nowa struktura danych 
+        self.side_effect_freq_map = SortedDict()
 
 
     def add_drug(self, drug_name, indications=None, substitutes=None, side_effects=None):
@@ -173,6 +174,13 @@ class PharmDB:
                     best_efficacy, best_id = self.best_drug_for_disease[disease]
                     if (efficacy > best_efficacy) or (efficacy == best_efficacy and drug.insert_order > self.drugs_by_id[best_id].insert_order):
                         self.best_drug_for_disease[disease] = (efficacy, drug_id)
+
+        # Dodaj efekty uboczne do indeksu częstotliwości
+        if side_effects:
+            for effect_name, level, freq in side_effects:
+                if freq not in self.side_effect_freq_map:
+                    self.side_effect_freq_map[freq] = []
+                self.side_effect_freq_map[freq].append((drug.name, effect_name))
 
         return drug_id
 
@@ -412,3 +420,40 @@ class PharmDB:
                 self.best_drug_for_disease[disease_name] = (current_eff, top_id)
                 break
             heapq.heappop(self.indication_heap[disease_name])  # usuwam nieaktualny wpis
+
+    def count_drugs_with_side_effect_frequency(self, min_freq, max_freq):
+        '''
+            Zwraca liczbę par (lek, objaw nieporządany) w bazie danych, gdzie lek
+            powoduje objaw niporządany we wskazanym (obustronnie domkniętym) zakresie częstotliwości występowania.
+            Funkcja powinna działać w czasie zamortyzowanym O(log F),
+            gdzie F to sumaryczna liczba działań niepożądanych dla wszystkich leków w bazie danych.
+        '''
+
+        # self.side_effect_freq_map to SortedDict, czyli struktura oparta na drzewie czerwono-czarnym,
+        # przechowuje ona dane posortowane po częstotliwości działań niepożądanych.
+        # Dzięki temu można efektywnie wywołać irange(min_freq, max_freq) - iterując tylko po kluczach
+        # w zadanym zakresie częstotliwości, bez przeglądania całej struktury.
+        # Wyszukiwanie zakresowe i iteracja po elementach w SortedDict działają w czasie O(log F + liczba zwróconych elementów).
+        # Tutaj, ponieważ liczy się tylko liczbę elementów, czas jest O(log F) zamortyzowany.
+        count = 0
+        for freq in self.side_effect_freq_map.irange(min_freq, max_freq):
+            count += len(self.side_effect_freq_map[freq])
+        return count
+
+    def list_drugs_with_side_effect_frequency(self, min_freq, max_freq):
+        '''
+            Zwraca listę par (lek, objaw niepożądany), dla których częstotliwość występowania objawu
+            mieści się we wskazanym zakresie. Funkcja powinna działać w czasie zamortyzowanym O(log F + m),
+            gdzie m jest liczbą par (lek, objaw) z zadanego przedziału.
+
+        '''
+        # Podobnie używam SortedDict (drzewa czerwono-czarnego),
+        # co pozwala na szybkie znalajdowanie zakresu kluczy częstotliwości.
+        # Operacja irange(min_freq, max_freq) znajduje granice zakresu w czasie O(log F),
+        # a następnie należy iterować tylko po elementach należących do tego ograniczonego już zakresu.
+        # Łączenie wyników (extend) ma złożoność O(m), gdzie m to liczba dopasowanych par (lek, objaw).
+        # Ostatecznie funkcja działa w czasie O(log F + m).
+        result = []
+        for freq in self.side_effect_freq_map.irange(min_freq, max_freq):
+            result.extend(self.side_effect_freq_map[freq])
+        return result
